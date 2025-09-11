@@ -1,7 +1,7 @@
 # @hazbase/factory
 
 ## Overview
-`@hazbase/factory` is a **CLI / SDK helper** for deploying smart contracts **via a shared Factory** in the HAZAMA BASE stack. The package is shipped as **ESM** (`"type": "module"`) and exposes the executable **`hazbase-factory`**.
+`@hazbase/factory` is a **CLI / SDK helper** for deploying smart contracts **via a shared Factory** in the hazBase stack. The package is shipped as **ESM** (`"type": "module"`) and exposes the executable **`hazbase-factory`**.
 
 - **name**: `@hazbase/factory`
 - **bin**: `hazbase-factory`
