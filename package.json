@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "A CLI / SDK helper for deploying smart contracts via a shared Factory in the hazBase stack.",
   "author": "IndieSquare Inc <info@hazbase.com>",
+  "keywords": ["hazBase", "backend", "factory", "cli", "web3", "typescript", "blockchain", "dapps", "evm", "ethereum"],
+  "homepage": "https://lp.hazbase.com/",
+  "repository": "hazbase/factory",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
