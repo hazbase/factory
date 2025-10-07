@@ -43,7 +43,8 @@
     "@types/figlet": "^1.7.0",
     "tsup": "^7.3.0",
     "tsx": "^4.7.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "hardhat": "2.25.0"
   },
   "scripts": {
     "build": "tsup",
