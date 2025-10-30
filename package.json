@@ -1,6 +1,6 @@
 {
   "name": "@hazbase/factory",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A CLI / SDK helper for deploying smart contracts via a shared Factory in the hazBase stack.",
   "author": "IndieSquare Inc <info@hazbase.com>",
   "keywords": [
