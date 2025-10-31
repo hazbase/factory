@@ -1,6 +1,6 @@
 import inquirer from 'inquirer';
 import { ethers } from 'ethers';
-import { FACTORY_ADDRESS, FactoryABI } from '../constants';
+import { FACTORY_ADDRESS, FactoryABI, RPC_URLs } from '../constants';
 import ora from 'ora';
 
 interface DeployFactoryOpts {
@@ -214,7 +214,10 @@ export async function deployViaFactoryByVersion(
 
 function resolveRpc(chainId: number): string {
   const key = `RPC_URL_${chainId}`;
-  const url = process.env[key] ?? process.env.RPC_URL;
-  if (!url) throw new Error(`RPC URL not set (expected ${key} or RPC_URL)`);
+  let url = process.env[key] ?? process.env.RPC_URL;
+  if (!url) {
+    url = RPC_URLs[chainId];
+    if (!url) throw new Error(`RPC URL not set (expected ${key} or RPC_URL)`);
+  }
   return url;
 }

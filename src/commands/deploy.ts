@@ -230,7 +230,7 @@ async function loadArtifact(opts: DeployOpts) {
 
 function resolveRpc(chainId: number): string {
   const envKey = `RPC_URL_${chainId}`;
-  let url    = process.env[envKey] ?? process.env.RPC_URL;
+  let url = process.env[envKey] ?? process.env.RPC_URL;
   if (!url) {
     url = RPC_URLs[chainId];
     if (!url) throw new Error(`RPC URL not set (expected ${envKey} or RPC_URL)`);
