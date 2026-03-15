@@ -59,6 +59,7 @@ export async function main(argv: string[]) {
        '--contractType <contractType>',
        'contractType identifier (e.g. "MyToken")'
     )
+    .option('--initSignature <signature>', 'initializer signature for policy-safe registration, e.g. "initialize(address,address[])"')
     .option('--gasless', 'use relayer (requires --accessToken & --clientKey)')
     .option('--accessToken <token>', 'JWT')
     .option('--clientKey <key>', 'client key')

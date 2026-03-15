@@ -9,6 +9,7 @@ import ora from 'ora';
 interface SetOpts {
   chainId: number;
   contractType: string;
+  initSignature?: string;
   gasless?: boolean;
   accessToken?: string;
   clientKey?: string;
@@ -42,7 +43,14 @@ export async function setImplementation(
     console.log('🚀  setting implementation on-chain ...');
 
     const contractTypeHash = ethers.keccak256(ethers.toUtf8Bytes(opts.contractType));
-    const data = factoryCtr.interface.encodeFunctionData('setImplementation', [contractTypeHash, implAddr]);
+    const initSelector = opts.initSignature
+      ? ethers.id(opts.initSignature).slice(0, 10)
+      : undefined;
+    const method = initSelector ? 'setImplementationWithPolicy' : 'setImplementation';
+    const args = initSelector
+      ? [contractTypeHash, implAddr, true, true, initSelector]
+      : [contractTypeHash, implAddr];
+    const data = factoryCtr.interface.encodeFunctionData(method, args);
     const unsignedTx = { to: factoryAddress, data, from: await signer.getAddress() };
     
     const estimatedGas = await provider.estimateGas(unsignedTx);
@@ -73,7 +81,7 @@ export async function setImplementation(
     }
 
     const spinner = ora('Sending setImplementation tx…').start();
-    const tx = await factoryCtr.setImplementation(contractTypeHash, implAddr);
+    const tx = await factoryCtr[method](...args);
     spinner.text = 'Waiting for transaction confirmation…';
     await tx.wait();
     spinner.succeed(`✅ setImplementation tx ${tx.hash}`);

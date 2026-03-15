@@ -45,6 +45,9 @@ export const RPC_URLs: Record<number, string> = {
 export const FactoryABI = [
   'event ContractDeployed(address indexed implementationOwner, bytes32 indexed contractType, address indexed proxy, address deployer)',
   'function setImplementation(bytes32 contractType, address impl)',
+  'function setImplementationWithPolicy(bytes32 contractType, address impl, bool cloneable, bool initRequired, bytes4 initSelector)',
+  'function getImplementationPolicy(address owner, bytes32 contractType, uint32 version) view returns ((bool isSet, bool cloneable, bool initRequired, bytes4 initSelector))',
+  'event ImplementationPolicySet(address indexed owner, bytes32 indexed contractType, uint32 indexed version, bool cloneable, bool initRequired, bytes4 initSelector)',
   'function deployContract(address implementationOwner, bytes32 contractType, bytes initData) returns (address)',
   'function deployContractByVersion(address implementationOwner, bytes32 contractType, uint32 version, bytes initData) returns (address)',
   'function deployedContracts(address owner) view returns (address[])'
