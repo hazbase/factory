@@ -4,7 +4,7 @@ import path from 'path';
 import inquirer from 'inquirer';
 import { ethers, ParamType } from 'ethers';
 import ora from 'ora';
-import { RPC_URLs } from '../constants';
+import { deployContract as deployStandaloneContract, resolveRpcUrl } from '../index';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
@@ -92,7 +92,7 @@ export async function deployContract(opts: DeployOpts) {
   }
 
   /* 3. Signer ------------------------------------------------------- */
-  const provider = new ethers.JsonRpcProvider(resolveRpc(opts.chainId));
+  const provider = new ethers.JsonRpcProvider(resolveRpcUrl(opts.chainId));
   if (!process.env.PRIVATE_KEY) {
     throw new Error('PRIVATE_KEY env missing');
   }
@@ -107,7 +107,10 @@ export async function deployContract(opts: DeployOpts) {
     /* Estimate gas -------------------------------------------------- */
     const factory     = new ethers.ContractFactory(abi, bytecode, signer);
     const unsignedTx  = await factory.getDeployTransaction(...constructorArgs);
-    const estimatedGas = await provider.estimateGas(unsignedTx);
+    const estimatedGas = await provider.estimateGas({
+      ...unsignedTx,
+      from: await signer.getAddress(),
+    });
     const feeData     = await provider.getFeeData();
     const gasPrice    = feeData.maxFeePerGas ?? feeData.gasPrice!;
     const costWei     = estimatedGas * gasPrice;
@@ -133,12 +136,34 @@ export async function deployContract(opts: DeployOpts) {
     }
 
     /* Deploy -------------------------------------------------------- */
-    const spinner = ora('Sending deployment tx…').start();
-    const contract = await factory.deploy(...constructorArgs);
+    const spinner = ora('Sending deployment tx...').start();
+    const result = await deployStandaloneContract({
+      chainId: opts.chainId,
+      signer,
+      abi,
+      bytecode,
+      args: constructorArgs,
+    });
     spinner.text = 'Waiting for transaction confirmation…';
-    await contract.waitForDeployment();
-    spinner.succeed(`✅ Deployed at ${await contract.getAddress()}`);
-    return;
+    spinner.succeed(`✅ Deployed at ${result.address}`);
+    console.log('   txHash:', result.txHash);
+
+    if (opts.initializer) {
+      const initArgs = JSON.parse(opts.initArgs);
+      if (!Array.isArray(initArgs)) {
+        throw new Error('--initArgs must be a JSON array');
+      }
+
+      const initSpinner = ora(`Calling initializer ${opts.initializer}...`).start();
+      const deployed = new ethers.Contract(result.address, abi, signer);
+      const tx = await deployed[opts.initializer](...initArgs);
+      initSpinner.text = 'Waiting for initializer confirmation…';
+      await tx.wait();
+      initSpinner.succeed(`✅ Initialized via ${opts.initializer}`);
+      console.log('   initializer txHash:', tx.hash);
+    }
+
+    return result;
   }
 
   /* ---------------------------------------------------------------- */
@@ -226,14 +251,4 @@ async function loadArtifact(opts: DeployOpts) {
   const { file } = await chooseArtifact(opts);
   if (!file) throw new Error('No artifact found. Did you compile?');
   return { data: JSON.parse(readFileSync(file, 'utf8')), path: file };
-}
-
-function resolveRpc(chainId: number): string {
-  const envKey = `RPC_URL_${chainId}`;
-  let url = process.env[envKey] ?? process.env.RPC_URL;
-  if (!url) {
-    url = RPC_URLs[chainId];
-    if (!url) throw new Error(`RPC URL not set (expected ${envKey} or RPC_URL)`);
-  }
-  return url;
 }

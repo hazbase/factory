@@ -23,7 +23,7 @@ export async function main(argv: string[]) {
   const program = new Command()
     .name('hazbase-factory')
     .description('HAZAMA BASE factory helper CLI')
-    .version('0.1.0');
+    .version('0.2.0');
 
   program.hook('preAction', () => {
     printBanner();
@@ -41,9 +41,9 @@ export async function main(argv: string[]) {
   program
     .command('deploy')
     .requiredOption('--chainId <number>', 'target chainId', v => Number(v))
-    .option('--gasless', 'use relayer (requires --accessToken & --clientKey)')
-    .option('--accessToken <token>', 'JWT from @hazbase/auth')
-    .option('--clientKey <key>', 'HAZAMA BASE client key')
+    .option('--gasless', 'use relayer (not supported yet)')
+    .option('--accessToken <token>', 'reserved for future gasless support')
+    .option('--clientKey <key>', 'reserved for future gasless support')
     .option('--args <json>', 'constructor args as JSON array', '[]')
     .option('--initializer <name>', 'initializer function name')
     .option('--initArgs <json>', 'initializer args JSON array', '[]')
@@ -60,9 +60,9 @@ export async function main(argv: string[]) {
        'contractType identifier (e.g. "MyToken")'
     )
     .option('--initSignature <signature>', 'initializer signature for policy-safe registration, e.g. "initialize(address,address[])"')
-    .option('--gasless', 'use relayer (requires --accessToken & --clientKey)')
-    .option('--accessToken <token>', 'JWT')
-    .option('--clientKey <key>', 'client key')
+    .option('--gasless', 'use relayer (not supported yet)')
+    .option('--accessToken <token>', 'reserved for future gasless support')
+    .option('--clientKey <key>', 'reserved for future gasless support')
     .action(async (implAddress, opts) => {
       await setImplementation(implAddress, opts);
     });
@@ -76,9 +76,9 @@ export async function main(argv: string[]) {
       '<fnArgs> JSON array, e.g. \'["MyToken","TTK",1000]\''
     )
     .requiredOption('--chainId <number>', 'target chainId', (v) => Number(v))
-    .option('--gasless', 'use relayer (requires --accessToken & --clientKey)')
-    .option('--accessToken <token>', 'JWT for gasless')
-    .option('--clientKey <key>', 'HAZAMA BASE client key')
+    .option('--gasless', 'use relayer (not supported yet)')
+    .option('--accessToken <token>', 'reserved for future gasless support')
+    .option('--clientKey <key>', 'reserved for future gasless support')
     .action(async (implementationOwner: string, contractType: string, fnSignature: string, fnArgs: string, opts) => {
       const { deployViaFactory } = await import('./commands/deployViaFactory');
       await deployViaFactory(implementationOwner, contractType, fnSignature, fnArgs, opts);
@@ -92,7 +92,7 @@ export async function main(argv: string[]) {
       'then <fnSignature> and <fnArgs> as above'
     )
     .requiredOption('--chainId <number>', 'target chainId', (v) => Number(v))
-    .action(async (implementationOwner: string, contractType: string, version: number, fnSignature, fnArgs, opts) => {
+    .action(async (implementationOwner: string, contractType: string, version: string, fnSignature, fnArgs, opts) => {
       const { deployViaFactoryByVersion } = await import('./commands/deployViaFactory');
       await deployViaFactoryByVersion(
         implementationOwner,

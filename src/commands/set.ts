@@ -1,7 +1,14 @@
 import inquirer from 'inquirer';
 import { ethers } from 'ethers';
-import { FACTORY_ADDRESS, FactoryABI, RPC_URLs } from '../constants';
+import { FactoryABI } from '../constants';
 import ora from 'ora';
+import {
+  getContractTypeHash,
+  getInitSelector,
+  resolveFactoryAddress,
+  resolveRpcUrl,
+  setImplementation as setImplementationOnChain,
+} from '../index';
 
 /* -------------------------------------------------------------- */
 /*  Types                                                         */
@@ -23,17 +30,14 @@ export async function setImplementation(
   opts: SetOpts
 ) {
   // RPC／Signer
-  const provider = new ethers.JsonRpcProvider(resolveRpc(opts.chainId));
+  const provider = new ethers.JsonRpcProvider(resolveRpcUrl(opts.chainId));
   if (!process.env.PRIVATE_KEY) {
     throw new Error('PRIVATE_KEY env missing');
   }
   const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
   // Factory
-  const factoryAddress = FACTORY_ADDRESS[opts.chainId];
-  if (!factoryAddress) {
-    throw new Error(`Factory not deployed on chainId ${opts.chainId}`);
-  }
+  const factoryAddress = resolveFactoryAddress(opts.chainId);
 
   //
   const factoryCtr = new ethers.Contract(factoryAddress, FactoryABI, signer);
@@ -42,14 +46,15 @@ export async function setImplementation(
   if (!opts.gasless) {
     console.log('🚀  setting implementation on-chain ...');
 
-    const contractTypeHash = ethers.keccak256(ethers.toUtf8Bytes(opts.contractType));
+    const implementation = ethers.getAddress(implAddr);
+    const contractTypeHash = getContractTypeHash(opts.contractType);
     const initSelector = opts.initSignature
-      ? ethers.id(opts.initSignature).slice(0, 10)
+      ? getInitSelector(opts.initSignature)
       : undefined;
     const method = initSelector ? 'setImplementationWithPolicy' : 'setImplementation';
     const args = initSelector
-      ? [contractTypeHash, implAddr, true, true, initSelector]
-      : [contractTypeHash, implAddr];
+      ? [contractTypeHash, implementation, true, true, initSelector]
+      : [contractTypeHash, implementation];
     const data = factoryCtr.interface.encodeFunctionData(method, args);
     const unsignedTx = { to: factoryAddress, data, from: await signer.getAddress() };
     
@@ -80,12 +85,19 @@ export async function setImplementation(
       process.exit(0);
     }
 
-    const spinner = ora('Sending setImplementation tx…').start();
-    const tx = await factoryCtr[method](...args);
+    const spinner = ora('Sending setImplementation tx...').start();
+    const result = await setImplementationOnChain({
+      chainId: opts.chainId,
+      signer,
+      implementation,
+      contractType: opts.contractType,
+      initSignature: opts.initSignature,
+    });
     spinner.text = 'Waiting for transaction confirmation…';
-    await tx.wait();
-    spinner.succeed(`✅ setImplementation tx ${tx.hash}`);
-    return;
+    spinner.succeed(
+      `✅ setImplementation tx ${result.txHash}${result.version ? ` (version ${result.version})` : ''}`,
+    );
+    return result;
   }
 
   console.log(
@@ -95,36 +107,4 @@ export async function setImplementation(
     '    The --gasless flag will be enabled in a future release.'
   );
   process.exit(1);
-
-  /* --- Future -------------------------------
-  if (!opts.accessToken || !(opts.clientKey || process.env.CLIENT_KEY)) {
-    throw new Error('accessToken and clientKey required for gasless set');
-  }
-  setClientKey(opts.clientKey ?? process.env.CLIENT_KEY!);
-  await ensureClientKeyActive();
-
-  const txHash = await forwardCall({
-    signer,
-    chainId: opts.chainId,
-    accessToken: opts.accessToken,
-    contractAddress: factoryAddress,
-    abi: factoryAbi,
-    method: 'setImplementation',
-    args: [implAddr],
-  });
-  console.log('✅ gas-less setImplementation tx', txHash);
-  ------------------------------------------------- */
-}
-
-/* -------------------------------------------------------------- */
-/*  Helper: RPC URL Solver                                        */
-/* -------------------------------------------------------------- */
-function resolveRpc(chainId: number): string {
-  const key = `RPC_URL_${chainId}`;
-  let url = process.env[key] ?? process.env.RPC_URL;
-  if (!url) {
-    url = RPC_URLs[chainId];
-    if (!url) throw new Error(`RPC URL not set (expected ${key} or RPC_URL)`);
-  }
-  return url;
 }

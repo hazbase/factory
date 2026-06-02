@@ -19,6 +19,19 @@
   "repository": "hazbase/factory",
   "license": "Apache-2.0",
   "type": "module",
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.mjs"
+    }
+  },
   "bin": {
     "hazbase-factory": "./bin/hazbase-factory.js"
   },

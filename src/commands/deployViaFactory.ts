@@ -1,7 +1,16 @@
 import inquirer from 'inquirer';
 import { ethers } from 'ethers';
-import { FACTORY_ADDRESS, FactoryABI, RPC_URLs } from '../constants';
 import ora from 'ora';
+
+import { FactoryABI } from '../constants';
+import {
+  deployViaFactory as deployViaFactoryOnChain,
+  deployViaFactoryByVersion as deployViaFactoryByVersionOnChain,
+  encodeInitData,
+  getContractTypeHash,
+  resolveFactoryAddress,
+  resolveRpcUrl,
+} from '../index';
 
 interface DeployFactoryOpts {
   chainId: number;
@@ -11,120 +20,76 @@ interface DeployFactoryOpts {
 }
 
 /**
- * Calls Factory.deployToken(bytes32 contractType, bytes initData)
+ * Calls Factory.deployContract(address,bytes32,bytes) with encoded initializer data.
  */
 export async function deployViaFactory(
   implementationOwner: string,
   contractType: string,
   fnSignature: string,
   fnArgsJson: string,
-  opts: DeployFactoryOpts
+  opts: DeployFactoryOpts,
 ) {
-  // 1) RPC & Signer
-  const rpc = resolveRpc(opts.chainId);
-  const provider = new ethers.JsonRpcProvider(rpc);
+  if (opts.gasless) {
+    console.log('⚠️  Gas-less deployViaFactory is not yet supported in this version.');
+    console.log('    The --gasless flag will be enabled in a future release.');
+    process.exit(1);
+  }
+
+  const provider = new ethers.JsonRpcProvider(resolveRpcUrl(opts.chainId));
   if (!process.env.PRIVATE_KEY) throw new Error('PRIVATE_KEY env missing');
   const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
-  // 2) Build the initialize-data
-  //   fnSignature: 'function initialize(string name,string sym,uint256 supply)'
-  //   fnArgsJson:   '["MyToken","TTK",1000]'
-  const iface = new ethers.Interface([fnSignature]);
-  // extract method name from signature
-  const fnNameMatch = fnSignature.match(/function\s+(\w+)\s*\(/);
-  if (!fnNameMatch) throw new Error(`Invalid fnSignature: ${fnSignature}`);
-  const fnName = fnNameMatch[1];
-  const fnArgs = JSON.parse(fnArgsJson);
-  const initData = iface.encodeFunctionData(fnName, fnArgs);
-
-  // 3) Factory instance
-  const factoryAddr = FACTORY_ADDRESS[opts.chainId];
-  if (!factoryAddr) throw new Error(`No Factory on chain ${opts.chainId}`);
+  const normalizedOwner = ethers.getAddress(implementationOwner);
+  const fnArgs = parseJsonArray(fnArgsJson, 'fnArgs');
+  const initData = encodeInitData(fnSignature, fnArgs);
+  const factoryAddr = resolveFactoryAddress(opts.chainId);
   const factoryCtr = new ethers.Contract(factoryAddr, FactoryABI, signer);
+  const contractTypeHash = getContractTypeHash(contractType);
 
-  // 4) contractType → bytes32
-  const contractTypeHash = ethers.keccak256(ethers.toUtf8Bytes(contractType));
+  console.log('🚀  deploying via Factory on-chain ...');
 
-  // 5) on-chain path (gasless TBD)
-  if (!opts.gasless) {
-    console.log('🚀  deploying via Factory on-chain …');
+  const data = factoryCtr.interface.encodeFunctionData('deployContract', [
+    normalizedOwner,
+    contractTypeHash,
+    initData,
+  ]);
+  await printEstimate(provider, {
+    to: factoryAddr,
+    data,
+    from: await signer.getAddress(),
+  });
 
-    // unsigned tx
-    const data = factoryCtr.interface.encodeFunctionData('deployContract', [implementationOwner, contractTypeHash, initData]);
-    const unsignedTx = { to: factoryAddr, data, from: await signer.getAddress() };
-
-    // estimate gas
-    const estimatedGas = await provider.estimateGas(unsignedTx);
-    const feeData = await provider.getFeeData();
-    const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice!;
-    const costWei = estimatedGas * gasPrice;
-    const costEth = Number(ethers.formatEther(costWei));
-
-    console.log(
-      `🧮  Estimated gas: ${estimatedGas.toString()} @ ${ethers.formatUnits(
-        gasPrice,
-        'gwei'
-      )} gwei`
-    );
-    console.log(`💸  ≈ ${costEth.toFixed(6)} ETH`);
-
-    // confirm
-    const { proceed } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'proceed',
-        message: 'Continue with deployViaFactory?',
-        default: true
-      }
-    ]);
-    if (!proceed) {
-      console.log('❌  Aborted by user.');
-      process.exit(0);
-    }
-
-    // execute
-    const spinner = ora('Sending deployContract tx…').start();
-    const tx = await factoryCtr.deployContract(implementationOwner, contractTypeHash, initData);
-    spinner.text = 'Waiting for transaction confirmation…';
-    const receipt = await tx.wait();
-    
-    let proxy: string | undefined;
-    if (receipt.logs) {
-        for (const log of receipt.logs) {
-            try {
-                const parsed = factoryCtr.interface.parseLog(log);
-                if (parsed?.name === 'ContractDeployed') {
-                proxy = parsed.args[2] as string;
-                break;
-                }
-            } catch {}
-        }
-    }
-    if (!proxy) {
-        try {
-            const owner = await signer.getAddress();
-            const all = await factoryCtr.deployedContracts(owner);
-            if (all.length === 0) {
-                console.warn('⚠️ deployedTokens mapping is empty for', owner);
-            } else {
-                proxy = all[all.length - 1];
-            }
-        } catch(e) {
-            console.log('deployedContracts error', e)
-        }
-    }
-
-    spinner.succeed(`✅ Proxy deployed at ${proxy}`);
-    console.log('   txHash:', tx.hash);
-    return;
+  const { proceed } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'proceed',
+      message: 'Continue with deployViaFactory?',
+      default: true,
+    },
+  ]);
+  if (!proceed) {
+    console.log('❌  Aborted by user.');
+    process.exit(0);
   }
 
-  console.log('⚠️  Gas-less deployViaFactory not yet supported.');
-  process.exit(1);
+  const spinner = ora('Sending deployContract tx...').start();
+  const result = await deployViaFactoryOnChain({
+    chainId: opts.chainId,
+    signer,
+    implementationOwner: normalizedOwner,
+    contractType,
+    fnSignature,
+    fnArgs,
+  });
+  spinner.text = 'Waiting for transaction confirmation…';
+  spinner.succeed(`✅ Proxy deployed at ${result.proxy}`);
+  if (result.predictedProxy) console.log('   predicted:', result.predictedProxy);
+  console.log('   txHash:', result.txHash);
+  return result;
 }
 
 /**
- * Clone specific implementation version & initialize
+ * Clone a specific implementation version and initialize it.
  */
 export async function deployViaFactoryByVersion(
   implementationOwner: string,
@@ -132,92 +97,85 @@ export async function deployViaFactoryByVersion(
   version: number,
   fnSignature: string,
   fnArgsJson: string,
-  opts: DeployFactoryOpts
+  opts: DeployFactoryOpts,
 ) {
-  const provider = new ethers.JsonRpcProvider(resolveRpc(opts.chainId));
+  if (opts.gasless) {
+    console.log('⚠️  Gas-less deployViaFactoryByVersion is not yet supported in this version.');
+    console.log('    The --gasless flag will be enabled in a future release.');
+    process.exit(1);
+  }
+
+  const provider = new ethers.JsonRpcProvider(resolveRpcUrl(opts.chainId));
   if (!process.env.PRIVATE_KEY) throw new Error('PRIVATE_KEY env missing');
   const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
-  // initData
-  const iface = new ethers.Interface([fnSignature]);
-  const fnName = (fnSignature.match(/function\s+(\w+)/) || [])[1];
-  if (!fnName) throw new Error(`Invalid fnSignature: ${fnSignature}`);
-  const fnArgs = JSON.parse(fnArgsJson);
-  const initData = iface.encodeFunctionData(fnName, fnArgs);
-
-  // ABI + instance
-  const factoryAddr = FACTORY_ADDRESS[opts.chainId];
-  if (!factoryAddr) throw new Error(`No Factory on chain ${opts.chainId}`);
+  const normalizedOwner = ethers.getAddress(implementationOwner);
+  const fnArgs = parseJsonArray(fnArgsJson, 'fnArgs');
+  const initData = encodeInitData(fnSignature, fnArgs);
+  const factoryAddr = resolveFactoryAddress(opts.chainId);
   const factoryCtr = new ethers.Contract(factoryAddr, FactoryABI, signer);
+  const contractTypeHash = getContractTypeHash(contractType);
 
-  // contractType hash
-  const contractTypeHash = ethers.keccak256(
-    ethers.toUtf8Bytes(contractType)
-  );
+  console.log(`🚀  deploying via Factory (v${version}) ...`);
+  const data = factoryCtr.interface.encodeFunctionData('deployContractByVersion', [
+    normalizedOwner,
+    contractTypeHash,
+    version,
+    initData,
+  ]);
+  await printEstimate(provider, {
+    to: factoryAddr,
+    data,
+    from: await signer.getAddress(),
+  });
 
-  // estimate & confirm
-  console.log('🚀  deploying via Factory (v' + version + ') ...');
-  const data = factoryCtr.interface.encodeFunctionData('deployContractByVersion', [implementationOwner, contractTypeHash, version, initData]);
-  const unsignedTx = { to: factoryAddr, data, from: await signer.getAddress() };
-  unsignedTx.from = await signer.getAddress();
-
-  const estimatedGas = await provider.estimateGas(unsignedTx);
-  const feeData = await provider.getFeeData();
-  const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice!;
-  console.log(
-    `🧮  Estimated gas: ${estimatedGas.toString()} @ ${ethers.formatUnits(
-      gasPrice,
-      'gwei'
-    )} gwei`
-  );
-  console.log(
-    `💸  ≈ ${Number(ethers.formatEther(estimatedGas * gasPrice)).toFixed(6)} ETH`
-  );
-  const { proceed } = await inquirer.prompt([{
-    type: 'confirm',
-    name: 'proceed',
-    message: 'Continue with deployViaFactoryByVersion?',
-    default: true
-  }]);
+  const { proceed } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'proceed',
+      message: 'Continue with deployViaFactoryByVersion?',
+      default: true,
+    },
+  ]);
   if (!proceed) {
     console.log('❌  Aborted by user.');
     process.exit(0);
   }
 
-  // execute & parse
-  const spinner = ora('Sending deployContractByVersion tx…').start();
-  const tx = await factoryCtr.deployContractByVersion(
-    implementationOwner, contractTypeHash, version, initData
-  );
+  const spinner = ora('Sending deployContractByVersion tx...').start();
+  const result = await deployViaFactoryByVersionOnChain({
+    chainId: opts.chainId,
+    signer,
+    implementationOwner: normalizedOwner,
+    contractType,
+    version,
+    fnSignature,
+    fnArgs,
+  });
   spinner.text = 'Waiting for transaction confirmation…';
-  const receipt = await tx.wait();
-
-  let proxy: string | undefined;
-  for (const log of receipt.logs) {
-    try {
-      const parsed = factoryCtr.interface.parseLog(log);
-      if (parsed?.name === 'ContractDeployed') {
-        proxy = parsed.args[2] as string;
-        break;
-      }
-    } catch {}
-  }
-  if (!proxy) {
-    const owner = await signer.getAddress();
-    const all = await factoryCtr.deployedContracts(owner);
-    proxy = all[all.length - 1];
-  }
-
-  spinner.succeed(`✅ Proxy (v${version}) deployed at ${proxy}`);
-  console.log('   txHash:', tx.hash);
+  spinner.succeed(`✅ Proxy (v${version}) deployed at ${result.proxy}`);
+  if (result.predictedProxy) console.log('   predicted:', result.predictedProxy);
+  console.log('   txHash:', result.txHash);
+  return result;
 }
 
-function resolveRpc(chainId: number): string {
-  const key = `RPC_URL_${chainId}`;
-  let url = process.env[key] ?? process.env.RPC_URL;
-  if (!url) {
-    url = RPC_URLs[chainId];
-    if (!url) throw new Error(`RPC URL not set (expected ${key} or RPC_URL)`);
-  }
-  return url;
+function parseJsonArray(raw: string, label: string): readonly unknown[] {
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON array`);
+  return parsed;
+}
+
+async function printEstimate(
+  provider: ethers.JsonRpcProvider,
+  tx: { to: string; data: string; from: string },
+): Promise<void> {
+  const estimatedGas = await provider.estimateGas(tx);
+  const feeData = await provider.getFeeData();
+  const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice!;
+  const costWei = estimatedGas * gasPrice;
+
+  console.log(
+    `🧮  Estimated gas: ${estimatedGas.toString()} @ ${ethers.formatUnits(gasPrice, 'gwei')} gwei`,
+  );
+  console.log(`💸  ≈ ${Number(ethers.formatEther(costWei)).toFixed(6)} ETH`);
 }
