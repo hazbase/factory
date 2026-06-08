@@ -83,11 +83,30 @@ export default config;
   writeFileSync('hardhat.config.ts', configTs, 'utf8');
   console.log('✅ Created hardhat.config.ts');
 
-  const dotEnv = `RPC_URL=
+  const dotEnv = `# DO NOT COMMIT this file — it holds secrets (deployer PRIVATE_KEY).
+# .gitignore excludes it; keep it that way. Prefer a keystore / hardware wallet for mainnet.
+RPC_URL=
 PRIVATE_KEY=
 `;
-  writeFileSync('.env', dotEnv, 'utf8');
-  console.log('✅ Created .env');
+  if (existsSync('.env')) {
+    console.log('⚠️  .env already exists; leaving it untouched (not overwriting secrets).');
+  } else {
+    writeFileSync('.env', dotEnv, 'utf8');
+    console.log('✅ Created .env');
+  }
+
+  // Never commit secrets or build artifacts.
+  const gitignore = `node_modules/
+.env
+.env.*
+artifacts/
+cache/
+typechain-types/
+`;
+  if (!existsSync('.gitignore')) {
+    writeFileSync('.gitignore', gitignore, 'utf8');
+    console.log('✅ Created .gitignore');
+  }
 
   const tsconfig = {
     compilerOptions: {

@@ -153,16 +153,41 @@ export function getFactoryContract(options: FactoryConnectionOptions): ethers.Co
 }
 
 export async function createSigner(options: FactoryConnectionOptions): Promise<Signer> {
-  if (options.signer) return options.signer;
+  if (options.signer) {
+    // A caller-supplied signer carries its own provider; still guard against a
+    // signer wired to a chain other than the one the caller asked to operate on.
+    await assertChainId(options.signer.provider, options.chainId);
+    return options.signer;
+  }
 
   const privateKey = options.privateKey ?? process.env.PRIVATE_KEY;
   if (!privateKey) throw new Error('signer or PRIVATE_KEY is required');
-  return new ethers.Wallet(privateKey, createProvider(options));
+  const provider = createProvider(options);
+  await assertChainId(provider, options.chainId);
+  return new ethers.Wallet(privateKey, provider);
 }
 
 export function createProvider(options: FactoryConnectionOptions): Provider {
   if (options.provider) return options.provider;
   return new ethers.JsonRpcProvider(resolveRpcUrl(options.chainId, options.rpcUrl));
+}
+
+/**
+ * Verify the RPC the provider is actually connected to matches the requested
+ * chainId before any signing/broadcasting. Without this, a mismatched RPC URL
+ * (e.g. a generic RPC_URL set for another network, or a wrong --rpcUrl) would
+ * cause the deployer key to sign and broadcast a real transaction on the wrong
+ * chain. No-op when chainId is not specified or the provider is absent.
+ */
+export async function assertChainId(provider: Provider | null | undefined, expected?: number): Promise<void> {
+  if (expected === undefined || !provider) return;
+  const actual = Number((await provider.getNetwork()).chainId);
+  if (actual !== expected) {
+    throw new Error(
+      `RPC chainId mismatch: connected to ${actual} but expected ${expected}. ` +
+        `Check rpcUrl / RPC_URL / RPC_URL_${expected} / --chainId.`,
+    );
+  }
 }
 
 export async function deployContract(options: DeployContractOptions): Promise<DeployContractResult> {
